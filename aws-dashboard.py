@@ -2,7 +2,11 @@
 
 """
 A script for rendering AWS dashboards to be viewed without logging in.
+Supply AWS credentials via an assigned role in IAM or environment variables.
 
+Usage example: ./aws-dashboard.py all > foo.html
+
+Note:
 https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/cloudwatch.html#CloudWatch.Client.get_metric_widget_image
 There is a limit of 20 transactions per second for this API. Each GetMetricWidgetImage action has the following limits:
 
@@ -12,7 +16,10 @@ Up to 100 KB uncompressed payload.
 """
 
 import base64
+import datetime
 import json
+import itertools
+import logging
 import pprint
 import sys
 import time
@@ -20,61 +27,86 @@ import time
 import boto3
 from botocore.exceptions import ClientError
 
-pp = pprint.PrettyPrinter(indent=4)
-
-_DEBUG = False
-
 __author__ = "Markus Koskinen"
 __license__ = "BSD"
 
+pp = pprint.PrettyPrinter(indent=4)
+logging.basicConfig(level=logging.INFO)
+
+_DEBUG = False
+
 def syntax(execname):
-    print("Syntax: %s" % execname)
+    print("Syntax: %s [dashboard_name]" % execname)
     sys.exit(1)
 
 def auth():
     try:
         api = boto3.client('cloudwatch')
     except ClientError as e:
-        print("Client error: %s" % e)
+        logging.error("Client error: %s" % e)
         exit(1)
         return e
     else:
         return api
 
-def main():
+def get_dashboard_images(dashboard_name="all", encode_base64=True):
+    """ Returns a list of base64 encoded PNGs of dashboard metrics. """
     cloudwatch_api = auth()
 
     dashboard_list = [d['DashboardName'] for d in cloudwatch_api.list_dashboards()['DashboardEntries']]
+
+    logging.info("Dashboards available: %s Rendering: %s" % (dashboard_list, dashboard_name) )
+
+    if dashboard_name != "all" and dashboard_name in dashboard_list:
+        dashboard_list = [ dashboard_name ]
+
     dashboard_widget_properties = {}
     dashboard_images = {}
 
-    print("<!-- Dashboards available: %s -->" % dashboard_list)
+    logging.debug("Dashboards available: %s " % dashboard_list)
 
     for dashboard in dashboard_list:
         dashboard_widget_properties[dashboard] = [ dp['properties'] for dp in json.loads(cloudwatch_api.get_dashboard(DashboardName=dashboard)['DashboardBody'])['widgets'] if 'metrics' in dp['properties'] ]
         dashboard_images[dashboard] = []
 
         for dashboard_widget_property in dashboard_widget_properties[dashboard]:
-            if _DEBUG:
-                pp.pprint(json.dumps(dashboard_widget_property))
+            #logging.debug(json.dumps(dashboard_widget_property))
 
-            dashboard_image_b64 = base64.b64encode( cloudwatch_api.get_metric_widget_image(MetricWidget=json.dumps(dashboard_widget_property))['MetricWidgetImage'] )
-            dashboard_images[dashboard].append(dashboard_image_b64)
+            dashboard_image = cloudwatch_api.get_metric_widget_image(MetricWidget=json.dumps(dashboard_widget_property))['MetricWidgetImage']
 
-            if _DEBUG:
-                print("get metric widget image type: %s, MetricWidgetImage: %s", type(dashboard_image_b64), dashboard_image_b64 )
+            if encode_base64:
+                dashboard_image = base64.b64encode( dashboard_image ).decode('utf-8')
+
+            #dashboard_image = base64.b64encode("foobar")
+            dashboard_images[dashboard].append(dashboard_image)
+
+    result = [item for sublist in dashboard_images.values() for item in sublist]
+    logging.info("Result size: %d " % len(result)) 
+
+    return result
 
 
-    result = ""
 
-    for dashboard in dashboard_list:
-        for image in dashboard_images[dashboard]:
-            result += "<img src='data:image/png;base64," + image + "' >\n"
+def main(argv):
+    """ Outputs a HTML page to stdout with inline base64 encoded PNG dashboards. """
+    dashboard_name = "all"
+
+    if len(argv) == 2:
+        dashboard_name = argv[1]
+
+    result = "<html>\n"
+    result += "<!-- Generation started: " + datetime.datetime.now().isoformat() + " -->\n"
+
+    for image in get_dashboard_images(dashboard_name=dashboard_name):
+        result += "  <img src='data:image/png;base64," + str(image) + "' />\n"
+
+    result += "<!-- Generation ended: " + datetime.datetime.now().isoformat() + " -->\n"
+    result += "</html>\n"
 
     print("%s" % result)
     return
 
 if __name__ == "__main__":
-    if len(sys.argv) != 1:
+    if len(sys.argv) not in  (1, 2):
         syntax(sys.argv[0])
-    main()
+    main(sys.argv)
