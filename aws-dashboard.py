@@ -8,14 +8,6 @@ Supply AWS credentials via an assigned role in IAM or environment variables.
 Usage example: ./aws-dashboard.py all > foo.html
 
 Logger runtime output will go to stderr.
-
-Note:
-https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/cloudwatch.html#CloudWatch.Client.get_metric_widget_image
-There is a limit of 20 transactions per second for this API.
-Each GetMetricWidgetImage action has the following limits:
-
-As many as 100 metrics in the graph.
-Up to 100 KB uncompressed payload.
 """
 
 import base64
