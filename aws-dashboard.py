@@ -99,7 +99,7 @@ def main(argv):
     result += "</html>\n"
 
     print("%s" % result)
-    logging.info("Completed. End time: %s Runtime: %s ", start_time, (end_time-start_time).isoformat())
+    logging.info("Completed. Start time: %s Runtime: %s ", start_time, str(end_time-start_time))
 
     return 0
 
